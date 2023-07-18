@@ -82,7 +82,6 @@ void *clientThread(void *arg) {
             std::cout << "Sent: " << message << std::endl;
         } else if (strcmp(buffer, "reset") == 0) {
             // 如果接收到"reset"，则重置机械臂
-            swift->set_servo_detach(-1);
             swift->reset();
             usleep(3000);
             swift->set_position(110, 0, 35);
