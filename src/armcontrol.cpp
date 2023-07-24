@@ -83,9 +83,6 @@ void *clientThread(void *arg) {
         } else if (strcmp(buffer, "reset") == 0) {
             // 如果接收到"reset"，则重置机械臂
             swift->reset();
-            usleep(3000);
-            swift->set_position(110, 0, 35);
-            usleep(1000);
             std::cout << "status: Reset OK!!" << std::endl;
         } else if (flag_angle == "angle1st") {
             swift->set_servo_angle(0, angle, 100);
