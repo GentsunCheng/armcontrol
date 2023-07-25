@@ -12,6 +12,9 @@
 bool runFlag = true;
 std::vector<pthread_t> threadIds;
 
+// 在全局定义一个互斥锁
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
 // 数据结构用于传递线程参数
 struct ThreadArgs {
     int socket;
@@ -60,38 +63,55 @@ void *clientThread(void *arg) {
             send(clientSocket, message.c_str(), message.length(), 0);
             std::cout << "Sent: " << message << std::endl;
         } else if (strcmp(buffer, "get_pos_x") == 0) {
+            pthread_mutex_lock(&mutex);
             // 如果接收到"get_pos"，返回机械臂位置信息
             std::vector<float> positions = swift->get_position();
             float value = positions[0];
             std::string message = std::to_string(value);
             send(clientSocket, message.c_str(), message.length(), 0);
+            pthread_mutex_unlock(&mutex);
             std::cout << "Sent: " << message << std::endl;
         } else if (strcmp(buffer, "get_pos_y") == 0) {
+            pthread_mutex_lock(&mutex);
             // 如果接收到"get_pos"，返回机械臂位置信息
             std::vector<float> positions = swift->get_position();
             float value = positions[1];
             std::string message = std::to_string(value);
             send(clientSocket, message.c_str(), message.length(), 0);
+            pthread_mutex_unlock(&mutex);
             std::cout << "Sent: " << message << std::endl;
         } else if (strcmp(buffer, "get_pos_z") == 0) {
+            pthread_mutex_lock(&mutex);
             // 如果接收到"get_pos"，返回机械臂位置信息
             std::vector<float> positions = swift->get_position();
             float value = positions[2];
             std::string message = std::to_string(value);
             send(clientSocket, message.c_str(), message.length(), 0);
+            pthread_mutex_unlock(&mutex);
             std::cout << "Sent: " << message << std::endl;
         } else if (strcmp(buffer, "reset") == 0) {
+            pthread_mutex_lock(&mutex);
             // 如果接收到"reset"，则重置机械臂
             swift->reset();
+            usleep(3000);
+            swift->set_position(110, 0, 35);
+            usleep(1000);
+            pthread_mutex_unlock(&mutex);
             std::cout << "status: Reset OK!!" << std::endl;
         } else if (flag_angle == "angle1st") {
+            pthread_mutex_lock(&mutex);
             swift->set_servo_angle(0, angle, 100);
+            pthread_mutex_unlock(&mutex);
             std::cout << "status: Set OK, angle = " << angle << std::endl;
         } else if (flag_angle == "angle2nd") {
+            pthread_mutex_lock(&mutex);
             swift->set_servo_angle(1, angle, 100);
+            pthread_mutex_unlock(&mutex);
             std::cout << "status: Set OK!!, angle = " << angle << std::endl;
         } else if (flag_angle == "angle3rd") {
+            pthread_mutex_lock(&mutex);
             swift->set_servo_angle(2, angle, 100);
+            pthread_mutex_unlock(&mutex);
             std::cout << "status: Set OK!!, angle = " << angle << std::endl;
         } else {
             // 其他情况，返回默认消息
