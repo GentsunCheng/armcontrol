@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <uarm/uarm.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include <iostream>
 #include <string>
@@ -92,10 +93,8 @@ void *clientThread(void *arg) {
         } else if (strcmp(buffer, "reset") == 0) {
             pthread_mutex_lock(&mutex);
             // 如果接收到"reset"，则重置机械臂
-            swift->reset();
-            usleep(3000);
-            swift->set_position(110, 0, 35);
-            usleep(1000);
+            system("python3 /home/spark/request_spark/armcontrol/scripts/reset.py");
+            swift->set_buzzer(100000,1);
             pthread_mutex_unlock(&mutex);
             std::cout << "status: Reset OK!!" << std::endl;
         } else if (flag_angle == "angle1st") {
@@ -113,6 +112,10 @@ void *clientThread(void *arg) {
             swift->set_servo_angle(2, angle, 100);
             pthread_mutex_unlock(&mutex);
             std::cout << "status: Set OK!!, angle = " << angle << std::endl;
+        } else if (strcmp(buffer, "noise") == 0) {
+            pthread_mutex_lock(&mutex);
+            swift->set_buzzer(100000,10);
+            pthread_mutex_unlock(&mutex);
         } else {
             // 其他情况，返回默认消息
             std::string message = "Hello from server";
@@ -197,7 +200,6 @@ int main() {
 
     // 关闭socket对象
     close(server_fd);
-    swift.flush_cmd();
     swift.disconnect();
 
     return 0;
