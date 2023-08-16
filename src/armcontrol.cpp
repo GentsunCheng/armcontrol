@@ -94,7 +94,6 @@ void *clientThread(void *arg) {
             pthread_mutex_lock(&mutex);
             // 如果接收到"reset"，则重置机械臂
             system("python3 /home/spark/request_spark/armcontrol/scripts/reset.py");
-            swift->set_buzzer(100000,1);
             pthread_mutex_unlock(&mutex);
             std::cout << "status: Reset OK!!" << std::endl;
         } else if (flag_angle == "angle1st") {
@@ -114,7 +113,7 @@ void *clientThread(void *arg) {
             std::cout << "status: Set OK!!, angle = " << angle << std::endl;
         } else if (strcmp(buffer, "noise") == 0) {
             pthread_mutex_lock(&mutex);
-            swift->set_buzzer(100000,10);
+            swift->set_buzzer(250,25);
             pthread_mutex_unlock(&mutex);
         } else {
             // 其他情况，返回默认消息

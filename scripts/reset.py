@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: UTF-8 -*-
+
 from uarm.wrapper import SwiftAPI
 
 # 连接uarm swift pro，指定设备路径
