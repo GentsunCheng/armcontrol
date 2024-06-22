@@ -4,202 +4,198 @@
 #include <uarm/uarm.h>
 #include <unistd.h>
 #include <stdlib.h>
-
 #include <iostream>
 #include <string>
 #include <vector>
+#include <memory>
+#include <cstring>
+#include <errno.h>
 
 #define PORT 8801
 bool runFlag = true;
 std::vector<pthread_t> threadIds;
 
-// 在全局定义一个互斥锁
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// 数据结构用于传递线程参数
 struct ThreadArgs {
     int socket;
     uarm::Swift *swift;
 };
 
-// 处理客户端连接的线程函数
+const int BUFFER_SIZE = 1024;
+
+enum Command {
+    DISCONNECT,
+    EXIT,
+    VERIFY,
+    GET_POS_X,
+    GET_POS_Y,
+    GET_POS_Z,
+    RESET,
+    ANGLE_1ST,
+    ANGLE_2ND,
+    ANGLE_3RD,
+    NOISE,
+    UNKNOWN
+};
+
+Command parseCommand(const std::string& input, float& angle) {
+    size_t plusPos = input.find('+');
+    if (plusPos != std::string::npos) {
+        std::string flag_angle = input.substr(0, plusPos);
+        std::string angleStr = input.substr(plusPos + 1);
+        angle = std::stof(angleStr);
+        if (flag_angle == "angle1st") return ANGLE_1ST;
+        if (flag_angle == "angle2nd") return ANGLE_2ND;
+        if (flag_angle == "angle3rd") return ANGLE_3RD;
+    } else {
+        if (input == "disconnect") return DISCONNECT;
+        if (input == "exit") return EXIT;
+        if (input == "verify") return VERIFY;
+        if (input == "get_pos_x") return GET_POS_X;
+        if (input == "get_pos_y") return GET_POS_Y;
+        if (input == "get_pos_z") return GET_POS_Z;
+        if (input == "reset") return RESET;
+        if (input == "noise") return NOISE;
+    }
+    return UNKNOWN;
+}
+
+void sendMessage(int clientSocket, const std::string& message) {
+    send(clientSocket, message.c_str(), message.length(), 0);
+    std::cout << "Sent: " << message << std::endl;
+}
+
 void *clientThread(void *arg) {
-    ThreadArgs *threadArgs = (ThreadArgs *)arg;
+    std::unique_ptr<ThreadArgs> threadArgs(static_cast<ThreadArgs*>(arg));
     int clientSocket = threadArgs->socket;
     uarm::Swift *swift = threadArgs->swift;
 
     while (true) {
-        // 接收客户端发送的数据
-        char buffer[1024] = {0};
+        char buffer[BUFFER_SIZE] = {0};
         float angle;
-        std::string flag_angle;
-        int valread = read(clientSocket, buffer, 1024);
-        if (valread == -1) {
-            std::cerr << "Failed to read data" << std::endl;
+        int valread = read(clientSocket, buffer, BUFFER_SIZE);
+        if (valread <= 0) {
+            if (valread == 0) {
+                std::cout << "Client disconnected" << std::endl;
+            } else {
+                std::cerr << "Failed to read data: " << strerror(errno) << std::endl;
+            }
             break;
         }
-
-        std::cout << "Received: " << buffer << std::endl;
 
         std::string input(buffer);
-        size_t plusPos = input.find('+');
-        if (plusPos != std::string::npos) {
-            // 提取指令部分
-            flag_angle = input.substr(0, plusPos);
-            // 提取角度部分
-            std::string angleStr = input.substr(plusPos + 1);
-            // 将角度字符串转换为float
-            angle = std::stof(angleStr);
+        Command command = parseCommand(input, angle);
+
+        switch (command) {
+            case DISCONNECT:
+                break;
+            case EXIT:
+                runFlag = false;
+                break;
+            case VERIFY:
+                sendMessage(clientSocket, "OK");
+                break;
+            case GET_POS_X:
+            case GET_POS_Y:
+            case GET_POS_Z: {
+                pthread_mutex_lock(&mutex);
+                std::vector<float> positions = swift->get_position();
+                float value = positions[command - GET_POS_X];
+                sendMessage(clientSocket, std::to_string(value));
+                pthread_mutex_unlock(&mutex);
+                break;
+            }
+            case RESET:
+                pthread_mutex_lock(&mutex);
+                system("python3 /home/spark/request_spark/armcontrol/scripts/reset.py");
+                pthread_mutex_unlock(&mutex);
+                std::cout << "status: Reset OK!!" << std::endl;
+                break;
+            case ANGLE_1ST:
+            case ANGLE_2ND:
+            case ANGLE_3RD: {
+                pthread_mutex_lock(&mutex);
+                swift->set_servo_angle(command - ANGLE_1ST, angle, 100);
+                pthread_mutex_unlock(&mutex);
+                std::cout << "status: Set OK, angle = " << angle << std::endl;
+                break;
+            }
+            case NOISE:
+                pthread_mutex_lock(&mutex);
+                swift->set_buzzer(250, 25);
+                pthread_mutex_unlock(&mutex);
+                break;
+            default:
+                sendMessage(clientSocket, "Hello from server");
         }
 
-        // 根据接收到的消息执行对应操作
-        if (strcmp(buffer, "disconnect") == 0) {
-            break;
-        } else if (strcmp(buffer, "exit") == 0) {
-            runFlag = false;
-            break;
-        } else if (strcmp(buffer, "verify") == 0) {
-            // 如果接收到"verify"，返回 "OK"
-            std::string message = "OK";
-            send(clientSocket, message.c_str(), message.length(), 0);
-            std::cout << "Sent: " << message << std::endl;
-        } else if (strcmp(buffer, "get_pos_x") == 0) {
-            pthread_mutex_lock(&mutex);
-            // 如果接收到"get_pos"，返回机械臂位置信息
-            std::vector<float> positions = swift->get_position();
-            float value = positions[0];
-            std::string message = std::to_string(value);
-            send(clientSocket, message.c_str(), message.length(), 0);
-            pthread_mutex_unlock(&mutex);
-            std::cout << "Sent: " << message << std::endl;
-        } else if (strcmp(buffer, "get_pos_y") == 0) {
-            pthread_mutex_lock(&mutex);
-            // 如果接收到"get_pos"，返回机械臂位置信息
-            std::vector<float> positions = swift->get_position();
-            float value = positions[1];
-            std::string message = std::to_string(value);
-            send(clientSocket, message.c_str(), message.length(), 0);
-            pthread_mutex_unlock(&mutex);
-            std::cout << "Sent: " << message << std::endl;
-        } else if (strcmp(buffer, "get_pos_z") == 0) {
-            pthread_mutex_lock(&mutex);
-            // 如果接收到"get_pos"，返回机械臂位置信息
-            std::vector<float> positions = swift->get_position();
-            float value = positions[2];
-            std::string message = std::to_string(value);
-            send(clientSocket, message.c_str(), message.length(), 0);
-            pthread_mutex_unlock(&mutex);
-            std::cout << "Sent: " << message << std::endl;
-        } else if (strcmp(buffer, "reset") == 0) {
-            pthread_mutex_lock(&mutex);
-            // 如果接收到"reset"，则重置机械臂
-            system("python3 /home/spark/request_spark/armcontrol/scripts/reset.py");
-            pthread_mutex_unlock(&mutex);
-            std::cout << "status: Reset OK!!" << std::endl;
-        } else if (flag_angle == "angle1st") {
-            pthread_mutex_lock(&mutex);
-            swift->set_servo_angle(0, angle, 100);
-            pthread_mutex_unlock(&mutex);
-            std::cout << "status: Set OK, angle = " << angle << std::endl;
-        } else if (flag_angle == "angle2nd") {
-            pthread_mutex_lock(&mutex);
-            swift->set_servo_angle(1, angle, 100);
-            pthread_mutex_unlock(&mutex);
-            std::cout << "status: Set OK!!, angle = " << angle << std::endl;
-        } else if (flag_angle == "angle3rd") {
-            pthread_mutex_lock(&mutex);
-            swift->set_servo_angle(2, angle, 100);
-            pthread_mutex_unlock(&mutex);
-            std::cout << "status: Set OK!!, angle = " << angle << std::endl;
-        } else if (strcmp(buffer, "noise") == 0) {
-            pthread_mutex_lock(&mutex);
-            swift->set_buzzer(250,25);
-            pthread_mutex_unlock(&mutex);
-        } else {
-            // 其他情况，返回默认消息
-            std::string message = "Hello from server";
-            send(clientSocket, message.c_str(), message.length(), 0);
-            std::cout << "Sent: " << message << std::endl;
-        }
+        if (command == DISCONNECT || command == EXIT) break;
     }
 
-    // 关闭客户端连接的socket
     close(clientSocket);
-
-    delete threadArgs;
     pthread_exit(NULL);
 }
 
 int main() {
-    // 创建一个socket对象
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == -1) {
-        std::cerr << "无法创建套接字" << std::endl;
+        std::cerr << "无法创建套接字: " << strerror(errno) << std::endl;
         return -1;
     }
 
-    // 设置套接字选项 SO_REUSEADDR
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        std::cerr << "设置套接字选项失败" << std::endl;
+        std::cerr << "设置套接字选项失败: " << strerror(errno) << std::endl;
         close(server_fd);
         return -1;
     }
 
-    // 定义地址结构
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
 
-    // 绑定socket到地址和端口
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) == -1) {
         std::cerr << "绑定套接字失败: " << strerror(errno) << " (错误代码: " << errno << ")" << std::endl;
-        close(server_fd);  // 退出前关闭套接字
+        close(server_fd);
         return -1;
     }
 
-    // 监听连接请求
     if (listen(server_fd, 3) == -1) {
-        std::cerr << "Failed to listen" << std::endl;
+        std::cerr << "Failed to listen: " << strerror(errno) << std::endl;
+        close(server_fd);
         return -1;
     }
 
-    // 创建 uarm::Swift 对象
     uarm::Swift swift("/dev/ttyACM0");
 
     while (runFlag) {
-        // 接受一个连接请求
         int addrlen = sizeof(address);
         int new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
         if (new_socket == -1) {
-            std::cerr << "Failed to accept connection" << std::endl;
+            std::cerr << "Failed to accept connection: " << strerror(errno) << std::endl;
             continue;
         }
 
-        // 创建线程来处理客户端连接
-        ThreadArgs *threadArgs = new ThreadArgs;
-        threadArgs->socket = new_socket;
-        threadArgs->swift = &swift;
+        ThreadArgs *threadArgs = new ThreadArgs{new_socket, &swift};
         pthread_t threadId;
-        if (pthread_create(&threadId, NULL, clientThread, (void *)threadArgs) != 0) {
-            std::cerr << "Failed to create thread" << std::endl;
+        if (pthread_create(&threadId, NULL, clientThread, threadArgs) != 0) {
+            std::cerr << "Failed to create thread: " << strerror(errno) << std::endl;
             close(new_socket);
             delete threadArgs;
         } else {
-            // 存储子线程的ID
             threadIds.push_back(threadId);
         }
     }
 
-    // 等待所有子线程完成
     for (pthread_t tid : threadIds) {
         pthread_join(tid, NULL);
     }
 
-    // 关闭socket对象
     close(server_fd);
     swift.disconnect();
+    pthread_mutex_destroy(&mutex);
 
     return 0;
 }
