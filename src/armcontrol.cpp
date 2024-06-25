@@ -67,11 +67,12 @@ void sendMessage(int clientSocket, const std::string& message) {
 }
 
 void *clientThread(void *arg) {
+    bool is_running = true;
     std::unique_ptr<ThreadArgs> threadArgs(static_cast<ThreadArgs*>(arg));
     int clientSocket = threadArgs->socket;
     uarm::Swift *swift = threadArgs->swift;
 
-    while (true) {
+    while (is_running) {
         char buffer[BUFFER_SIZE] = {0};
         float angle;
         int valread = read(clientSocket, buffer, BUFFER_SIZE);
@@ -128,9 +129,12 @@ void *clientThread(void *arg) {
                 break;
             default:
                 sendMessage(clientSocket, "Hello from server");
+                is_running = false;
+                break;
         }
 
-        if (command == DISCONNECT || command == EXIT) break;
+        if (command == DISCONNECT || command == EXIT)
+            is_running = false;;
     }
 
     close(clientSocket);

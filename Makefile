@@ -14,8 +14,6 @@ $(TARGET): $(SRCS)
 
 install: $(TARGET)
 	@echo "Installing..."
-	mkdir -p $(TARGET)
-	mkdir -p /home/spark/request_spark/armcontrol/scripts
 	sudo cp $(TARGET) /usr/bin/
 	sudo chmod +x /usr/bin/armcontrol
 	cp scripts/reset.py /home/spark/request_spark/armcontrol/scripts
